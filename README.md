@@ -72,7 +72,7 @@ This project is a **Power BI Dashboard** that provides a comprehensive analysis 
 - Inventory: Reorder checks, stock-out trends, days cover
 - Region Insights: Sales %, Profit %, Unique Customers
 
-📁 Full SQL queries available in: [`SQL-Scripts/dmart_master_queries.sql`](SQL-Scripts/dmart_master_queries.sql)
+📁 Full SQL queries available in: [`SQL-Scripts/dmart_master_queries.sql`](SQL-Scripts/dmart_master_queries.txt)
 
 ---
 
