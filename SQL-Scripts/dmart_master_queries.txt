@@ -1,0 +1,266 @@
+
+-- DMart Power BI Dashboard • Master SQL Script
+-- Works with MySQL 8.x or compatible syntax.
+-- Adjust DATE_FORMAT / concat syntax if using PostgreSQL or SQL Server.
+
+-------------------------------------------------
+-- 0. Table assumption
+-- Your transactional table = dmart_sales
+-- Columns: Date, Store, Region, Category, Subcategory,
+--          Product_ID, Product_Name, Units_Sold,
+--          Unit_Price, Cost_Price, Customer_ID,
+--          Sales, Profit, Margin_Percent,
+--          Reorder_Level, Current_Stock, Days_Cover,
+--          Stock_Status, Out_of_Stock
+-------------------------------------------------
+
+/* =========================================================
+   PAGE 1 – SALES OVERVIEW DASHBOARD
+   ========================================================= */
+
+-- KPI: Total Sales, Total Profit, Units, Store Count
+SELECT
+    SUM(Sales)       AS Total_Sales,
+    SUM(Profit)      AS Total_Profit,
+    SUM(Units_Sold)  AS Units_Sold,
+    COUNT(DISTINCT Store) AS Store_Count
+FROM dmart_sales;
+
+-- Bar Chart: Sales by Product Category
+SELECT Category, SUM(Sales) AS Total_Sales
+FROM dmart_sales
+GROUP BY Category
+ORDER BY Total_Sales DESC;
+
+-- Donut: % Sales by Category
+WITH cat_sales AS (
+  SELECT Category, SUM(Sales) AS Sales
+  FROM dmart_sales GROUP BY Category
+), tot AS (
+  SELECT SUM(Sales) AS Grand_Sales FROM cat_sales
+)
+SELECT c.Category,
+       c.Sales,
+       ROUND(c.Sales / t.Grand_Sales * 100,2) AS Sales_Pct
+FROM cat_sales c, tot t
+ORDER BY Sales_Pct DESC;
+
+-- Line Chart: Monthly Sales Trend
+SELECT DATE_FORMAT(Date, '%Y-%m') AS YearMonth,
+       SUM(Sales) AS Monthly_Sales
+FROM dmart_sales
+GROUP BY YearMonth
+ORDER BY YearMonth;
+
+-- Table: Top 10 Selling Products
+SELECT Product_Name,
+       SUM(Sales)  AS Total_Sales,
+       SUM(Profit) AS Total_Profit,
+       SUM(Units_Sold) AS Units
+FROM dmart_sales
+GROUP BY Product_Name
+ORDER BY Total_Sales DESC
+LIMIT 10;
+
+/* =========================================================
+   PAGE 2 – STORE PERFORMANCE DASHBOARD
+   ========================================================= */
+
+-- KPI: Best Store, Worst Store, Avg Store Sales, Total Stores
+WITH store_sales AS (
+  SELECT Store, SUM(Sales) AS Total_Sales
+  FROM dmart_sales GROUP BY Store
+)
+SELECT
+  (SELECT Store FROM store_sales ORDER BY Total_Sales DESC LIMIT 1)  AS Best_Store,
+  (SELECT Store FROM store_sales ORDER BY Total_Sales ASC  LIMIT 1)  AS Worst_Store,
+  ROUND( (SELECT AVG(Total_Sales) FROM store_sales), 2)             AS Avg_Store_Sales,
+  (SELECT COUNT(*) FROM store_sales)                                AS Total_Stores;
+
+-- Bar Chart: Sales by Store
+SELECT Store, SUM(Sales) AS Total_Sales
+FROM dmart_sales
+GROUP BY Store
+ORDER BY Total_Sales DESC;
+
+-- Donut: Profit % by Store
+WITH s AS (
+  SELECT Store, SUM(Profit) AS Profit FROM dmart_sales GROUP BY Store
+), t AS (
+  SELECT SUM(Profit) AS Grand_Profit FROM s
+)
+SELECT s.Store,
+       s.Profit,
+       ROUND(s.Profit / t.Grand_Profit * 100, 2) AS Profit_Pct
+FROM s, t
+ORDER BY Profit_Pct DESC;
+
+-- Line: Monthly Sales by Selected Store (parameter :store_name)
+-- Replace ':store_name' in WHERE
+SELECT DATE_FORMAT(Date, '%Y-%m') AS YearMonth,
+       SUM(Sales) AS Monthly_Sales
+FROM dmart_sales
+WHERE Store = :store_name
+GROUP BY YearMonth
+ORDER BY YearMonth;
+
+-- Table: Store-wise Sales & Profit & Units
+SELECT Store,
+       SUM(Sales)  AS Total_Sales,
+       SUM(Profit) AS Total_Profit,
+       SUM(Units_Sold) AS Units_Sold
+FROM dmart_sales
+GROUP BY Store
+ORDER BY Total_Sales DESC;
+
+/* =========================================================
+   PAGE 3 – PRODUCT INSIGHTS DASHBOARD
+   ========================================================= */
+
+-- KPI: Top Product, Avg Margin %, Total Units, Avg Selling Price
+WITH prod_stats AS (
+  SELECT Product_Name,
+         SUM(Sales) AS Sales,
+         AVG(Margin_Percent) AS Avg_Margin
+  FROM dmart_sales
+  GROUP BY Product_Name
+)
+SELECT
+  (SELECT Product_Name FROM prod_stats ORDER BY Sales DESC LIMIT 1) AS Top_Product,
+  ROUND( (SELECT AVG(Margin_Percent) FROM dmart_sales), 2)         AS Avg_Product_Margin,
+  SUM(Units_Sold)                                                  AS Total_Units,
+  ROUND(AVG(Unit_Price),2)                                         AS Avg_Price
+FROM dmart_sales;
+
+-- Bar Chart: Sales by Subcategory
+SELECT Subcategory, SUM(Sales) AS Total_Sales
+FROM dmart_sales
+GROUP BY Subcategory
+ORDER BY Total_Sales DESC;
+
+-- Donut: Sales % of Top 5 Products
+WITH top5 AS (
+  SELECT Product_Name, SUM(Sales) AS Sales
+  FROM dmart_sales
+  GROUP BY Product_Name
+  ORDER BY Sales DESC
+  LIMIT 5
+), tot AS (SELECT SUM(Sales) AS Grand_Sales FROM top5)
+SELECT t.Product_Name,
+       t.Sales,
+       ROUND(t.Sales / tot.Grand_Sales * 100,2) AS Sales_Pct
+FROM top5 t, tot
+ORDER BY Sales DESC;
+
+-- Line: Monthly Trend for Selected Product (parameter :product_name)
+SELECT DATE_FORMAT(Date, '%Y-%m') AS YearMonth,
+       SUM(Sales) AS Monthly_Sales
+FROM dmart_sales
+WHERE Product_Name = :product_name
+GROUP BY YearMonth
+ORDER BY YearMonth;
+
+-- Table: Product‑level performance
+SELECT Product_Name, Category,
+       SUM(Sales)  AS Total_Sales,
+       SUM(Profit) AS Total_Profit,
+       SUM(Units_Sold) AS Units_Sold,
+       ROUND(AVG(Margin_Percent),2) AS Avg_Margin
+FROM dmart_sales
+GROUP BY Product_Name, Category
+ORDER BY Total_Sales DESC;
+
+/* =========================================================
+   PAGE 4 – INVENTORY DASHBOARD
+   ========================================================= */
+
+-- KPI: Total Stock Value, Items Below Reorder, Out of Stock, Avg Days Cover
+SELECT
+  SUM(Current_Stock * Unit_Price) AS Total_Stock_Value,
+  SUM(CASE WHEN Current_Stock < Reorder_Level THEN 1 ELSE 0 END) AS Items_Below_Reorder,
+  SUM(CASE WHEN Current_Stock = 0 THEN 1 ELSE 0 END)            AS Out_of_Stock_Items,
+  ROUND(AVG(Days_Cover), 2)                                     AS Avg_Days_Cover
+FROM dmart_sales;
+
+-- Bar: Stock vs Reorder by Category
+SELECT Category,
+       SUM(Current_Stock)  AS Current_Stock,
+       SUM(Reorder_Level)  AS Reorder_Level
+FROM dmart_sales
+GROUP BY Category;
+
+-- Donut: Stock % by Category
+WITH cat_stock AS (
+  SELECT Category, SUM(Current_Stock) AS Stock FROM dmart_sales GROUP BY Category
+), tot AS (SELECT SUM(Stock) AS Total_Stock FROM cat_stock)
+SELECT c.Category,
+       c.Stock,
+       ROUND(c.Stock / t.Total_Stock * 100,2) AS Stock_Pct
+FROM cat_stock c, tot t
+ORDER BY Stock_Pct DESC;
+
+-- Line: Stock-Out Trend (daily count of out-of-stock products)
+SELECT Date,
+       SUM(CASE WHEN Out_of_Stock THEN 1 ELSE 0 END) AS Out_of_Stock_Count
+FROM dmart_sales
+GROUP BY Date
+ORDER BY Date;
+
+-- Table: Inventory Details
+SELECT Product_Name,
+       Current_Stock,
+       Reorder_Level,
+       CASE WHEN Current_Stock = 0 THEN 'Out of Stock'
+            WHEN Current_Stock < Reorder_Level THEN 'Below Reorder'
+            ELSE 'Sufficient' END AS Stock_Status,
+       Days_Cover
+FROM dmart_sales
+GROUP BY Product_Name, Current_Stock, Reorder_Level, Days_Cover
+ORDER BY Stock_Status DESC, Current_Stock;
+
+/* =========================================================
+   PAGE 5 – GLOBAL SQL INSIGHTS DASHBOARD
+   ========================================================= */
+
+-- KPI: SQL Total Sales, Total Profit, Avg Order Value, Unique Customers
+SELECT
+  SUM(Sales)                        AS Total_Sales,
+  SUM(Profit)                       AS Total_Profit,
+  ROUND(SUM(Sales) / COUNT(DISTINCT Customer_ID),2) AS Avg_Order_Value,
+  COUNT(DISTINCT Customer_ID)       AS Unique_Customers
+FROM dmart_sales;
+
+-- Bar: Profit by Category
+SELECT Category, SUM(Profit) AS Total_Profit
+FROM dmart_sales
+GROUP BY Category
+ORDER BY Total_Profit DESC;
+
+-- Donut: % Sales by Region
+WITH reg_sales AS (SELECT Region, SUM(Sales) AS Sales FROM dmart_sales GROUP BY Region),
+     tot AS (SELECT SUM(Sales) AS Grand FROM reg_sales)
+SELECT r.Region,
+       r.Sales,
+       ROUND(r.Sales / t.Grand * 100,2) AS Sales_Pct
+FROM reg_sales r, tot t
+ORDER BY Sales_Pct DESC;
+
+-- Line: Monthly Profit Trend
+SELECT DATE_FORMAT(Date, '%Y-%m') AS YearMonth,
+       SUM(Profit) AS Monthly_Profit
+FROM dmart_sales
+GROUP BY YearMonth
+ORDER BY YearMonth;
+
+-- Table: Top 10 Products by Sales & Profit
+SELECT Product_Name,
+       SUM(Sales)  AS Total_Sales,
+       SUM(Profit) AS Total_Profit
+FROM dmart_sales
+GROUP BY Product_Name
+ORDER BY Total_Sales DESC
+LIMIT 10;
+
+/* =========================================================
+   END OF SCRIPT
+   ========================================================= */
